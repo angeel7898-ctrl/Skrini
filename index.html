@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Teletype parodia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<!-- Firebase (compat build — no bundler needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --bg: #0B0B0D;
+    --panel: #141416;
+    --line: #232327;
+    --ink: #F2F2F3;
+    --ink-soft: #8A8A90;
+    --accent: #F2F2F3;
+    --topbar-bg: #0B0B0D;
+    --topbar-ink: #F2F2F3;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    font-family:'Inter', sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+  }
+  .wrap{max-width:520px;margin:0 auto;}
+
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 18px;
+    position:sticky;top:0;
+    background:var(--topbar-bg);
+    color:var(--topbar-ink);
+    z-index:5;
+  }
+  .brand{font-weight:800;font-size:16px;letter-spacing:-.01em;color:var(--topbar-ink);}
+  .back{font-size:14px;color:var(--topbar-ink);opacity:.7;font-weight:600;cursor:pointer;}
+
+  .content{padding:24px 18px 100px;}
+
+  input[type=text]{
+    width:100%;
+    border:none;
+    background:transparent;
+    padding:6px 0 14px;
+    font-size:28px;
+    font-family:Georgia, 'Times New Roman', serif;
+    font-weight:400;
+    color:var(--ink);
+    outline:none;
+    border-bottom:1px solid var(--line);
+  }
+  input[type=text]::placeholder{color:#4C4C52;font-weight:400;}
+
+  .add-row{display:flex;align-items:center;gap:9px;margin:20px 0 24px;}
+  .add-btn{
+    width:30px;height:30px;border-radius:50%;
+    border:1.5px solid var(--line);
+    background:transparent;color:var(--ink);font-size:15px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;flex-shrink:0;
+    transition:.15s border-color, .15s background;
+  }
+  .add-btn:hover{border-color:#B8B8B8; background:var(--panel);}
+  .add-label{font-size:12.5px;color:var(--ink-soft);font-weight:600;}
+
+  .visually-hidden{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
+
+  .shots{display:flex;flex-direction:column;gap:9px;}
+  .shot{position:relative;}
+  .shot img{width:100%;display:block;border-radius:4px;}
+  .shot .rm{
+    position:absolute;top:8px;right:8px;
+    width:26px;height:26px;border-radius:50%;
+    border:none;background:rgba(0,0,0,.6);color:#fff;
+    font-size:14px;line-height:1;cursor:pointer;
+  }
+
+  .publish-bar{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:14px 18px calc(14px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, var(--bg) 60%, transparent);
+  }
+  .publish-inner{max-width:520px;margin:0 auto;}
+  .btn{
+    width:auto;min-width:140px;border:2px solid var(--accent);border-radius:999px;
+    padding:13px 28px;
+    font-family:'Inter',sans-serif;font-size:14px;font-weight:700;letter-spacing:.02em;
+    color:var(--accent);cursor:pointer;background:transparent;
+    text-transform:uppercase;
+    transition:.15s opacity, .15s transform, .15s background, .15s color;
+  }
+  .btn:hover{background:var(--accent);color:#0B0B0D;}
+  .btn:active{transform:scale(.98);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+
+  .share-box{
+    margin-top:12px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:12px;display:flex;gap:8px;align-items:center;
+  }
+  .share-box input{
+    flex:1;border:none;background:transparent;font-size:12px;font-family:'Inter',sans-serif;
+    color:var(--ink-soft);font-weight:600;outline:none;padding:0;border-bottom:none;
+  }
+  .copy-btn{
+    border:none;border-radius:999px;background:var(--accent);
+    color:#0B0B0D;font-weight:700;padding:8px 14px;font-size:12px;
+    cursor:pointer;white-space:nowrap;
+  }
+
+  .author-row{display:flex;align-items:center;gap:11px;padding:24px 18px 0;}
+  .author-avatar{
+    width:42px;height:42px;border-radius:50%;flex-shrink:0;
+    background:var(--panel);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:15px;color:var(--ink);
+  }
+  .author-name{font-weight:800;font-size:15px;color:var(--ink);line-height:1.3;}
+  .author-date{font-size:12.5px;color:var(--ink-soft);font-weight:600;line-height:1.3;}
+  .post-meta-top{font-size:12.5px;color:var(--ink-soft);font-weight:600;padding:24px 18px 0;}
+
+  .post-title{font-size:32px;font-weight:800;font-family:'Inter',sans-serif;letter-spacing:-.01em;padding:20px 18px 20px;}
+  .post-meta{display:none;}
+  .gallery{display:flex;flex-direction:column;gap:28px;padding:0 18px;}
+  .gallery img{width:100%;display:block;border-radius:4px;}
+  .empty-shots{
+    margin:0 18px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:20px;text-align:center;
+    color:var(--ink-soft);font-weight:600;font-size:13px;
+  }
+
+  .state-box{text-align:center;padding:60px 18px;color:var(--ink-soft);font-weight:600;}
+  .spinner{
+    width:28px;height:28px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--ink);
+    margin:0 auto 14px;animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .toast{
+    position:fixed;left:50%;bottom:100px;transform:translateX(-50%);
+    background:#1A1A1A;color:#fff;font-weight:600;font-size:13px;
+    padding:10px 16px;border-radius:10px;
+    opacity:0;pointer-events:none;transition:.25s;z-index:50;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- Firebase ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyCxK1yWaotUIj5hw_C1vkCNQQuDwmy-f2w",
+  authDomain: "vacu-20b84.firebaseapp.com",
+  projectId: "vacu-20b84",
+  storageBucket: "vacu-20b84.firebasestorage.app",
+  messagingSenderId: "139666089230",
+  appId: "1:139666089230:web:e514b19de09ba0be47235f",
+  measurementId: "G-VXK3RN1TV2"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const root = document.getElementById('root');
+const toastEl = document.getElementById('toast');
+const MAX_IMAGES = 60;
+
+// Секретный ключ для доступа к созданию постов.
+// Ссылка на создание: index.html#new=vacu-x7q2m9k4
+const CREATE_KEY = 'vacu-x7q2m9k4';
+
+// Имя автора над постом. Оставь пустой строкой '' — и блок с именем не будет показываться вообще.
+const AUTHOR_NAME = '';
+
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  setTimeout(()=>toastEl.classList.remove('show'), 1800);
+}
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+function genId(){
+  return Math.random().toString(36).slice(2,8) + Date.now().toString(36).slice(-4);
+}
+
+// compressed small enough to safely fit Firestore's 1MB-per-document limit
+function fileToCompressedDataUrl(file, maxW=1200, quality=0.92){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxW){
+          h = Math.round(h * (maxW / w));
+          w = maxW;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        let q = quality;
+        let url = canvas.toDataURL('image/jpeg', q);
+        // safety margin under Firestore's ~1MB-per-document limit
+        while(url.length > 900000 && q > 0.5){
+          q -= 0.1;
+          url = canvas.toDataURL('image/jpeg', q);
+        }
+        resolve(url);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+let images = [];
+let isPublishing = false;
+
+function renderLocked(){
+  root.innerHTML = `
+    <div class="topbar"><div class="brand">Teletype parodia</div></div>
+    <div class="state-box">Нет доступа к созданию постов</div>
+  `;
+}
+
+function renderCreate(){
+  root.innerHTML = `
+    <div class="topbar"><div class="brand">Teletype parodia</div></div>
+    <div class="content">
+      <input type="text" id="titleInput" placeholder="Название игры" maxlength="80">
+
+      <div class="add-row">
+        <label class="add-btn" for="fileInput">+</label>
+        <div class="add-label">Добавить скрины из галереи</div>
+      </div>
+      <input type="file" id="fileInput" class="visually-hidden" accept="image/*" multiple>
+
+      <div class="shots" id="shots"></div>
+      <div id="resultBox"></div>
+    </div>
+
+    <div class="publish-bar">
+      <div class="publish-inner">
+        <button class="btn" id="publishBtn">Опубликовать</button>
+      </div>
+    </div>
+  `;
+
+  const fileInput = document.getElementById('fileInput');
+
+  fileInput.onchange = async (e)=>{
+    const remaining = MAX_IMAGES - images.length;
+    if(remaining <= 0){
+      showToast(`Максимум ${MAX_IMAGES} скринов`);
+      fileInput.value = '';
+      return;
+    }
+    const files = Array.from(e.target.files || []).slice(0, remaining);
+    for(const f of files){
+      try{
+        const url = await fileToCompressedDataUrl(f);
+        images.push(url);
+        renderShots();
+      }catch(err){ console.error(err); }
+    }
+    fileInput.value = '';
+  };
+
+  document.getElementById('publishBtn').onclick = handlePublish;
+  renderShots();
+}
+
+function renderShots(){
+  const shots = document.getElementById('shots');
+  if(!shots) return;
+  shots.innerHTML = images.map((src, i)=>`
+    <div class="shot">
+      <img src="${src}">
+      <button data-i="${i}" class="rm">✕</button>
+    </div>
+  `).join('');
+  shots.querySelectorAll('.rm').forEach(btn=>{
+    btn.onclick = ()=>{
+      images.splice(Number(btn.dataset.i), 1);
+      renderShots();
+    };
+  });
+}
+
+async function handlePublish(){
+  const titleInput = document.getElementById('titleInput');
+  const title = titleInput.value.trim();
+  const btn = document.getElementById('publishBtn');
+  const resultBox = document.getElementById('resultBox');
+
+  if(!title){
+    showToast('Введи название игры');
+    titleInput.focus();
+    return;
+  }
+  if(isPublishing) return;
+  isPublishing = true;
+  btn.disabled = true;
+  btn.textContent = 'Публикуем...';
+
+  try{
+    const id = genId();
+    const postRef = db.collection('posts').doc(id);
+    await postRef.set({ title, createdAt: Date.now() });
+
+    // each screenshot as its own document so we never hit the 1MB doc limit
+    const batchWrites = images.map((src, i)=>
+      postRef.collection('images').doc(String(i).padStart(3,'0')).set({ data: src, order: i })
+    );
+    await Promise.all(batchWrites);
+
+    const link = location.origin + location.pathname + '#p=' + id;
+    resultBox.innerHTML = `
+      <div class="share-box">
+        <input type="text" id="linkOut" readonly value="${escapeHtml(link)}">
+        <button class="copy-btn" id="copyBtn">Копировать</button>
+      </div>
+    `;
+    document.getElementById('copyBtn').onclick = ()=>{
+      const inp = document.getElementById('linkOut');
+      inp.select();
+      navigator.clipboard?.writeText(link).catch(()=>{});
+      showToast('Ссылка скопирована');
+    };
+    showToast('Опубликовано');
+  }catch(err){
+    console.error(err);
+    showToast('Не получилось опубликовать');
+  }finally{
+    isPublishing = false;
+    btn.disabled = false;
+    btn.textContent = 'Опубликовать';
+  }
+}
+
+async function renderView(id){
+  root.innerHTML = `
+    <div class="topbar">
+      <div class="brand">Teletype parodia</div>
+    </div>
+    <div class="state-box"><div class="spinner"></div>Загрузка...</div>
+  `;
+
+  try{
+    const postRef = db.collection('posts').doc(id);
+    const doc = await postRef.get();
+    if(!doc.exists){
+      document.querySelector('.state-box').innerHTML = 'Пост не найден';
+      return;
+    }
+    const post = doc.data();
+    const imagesSnap = await postRef.collection('images').orderBy('order').get();
+    const imgs = imagesSnap.docs.map(d => d.data().data);
+
+    const date = new Date(post.createdAt);
+    const dateStr = date.toLocaleDateString('ru-RU', {day:'numeric', month:'long', year:'numeric'});
+
+    root.innerHTML = `
+      <div class="topbar">
+        <div class="brand">Teletype parodia</div>
+      </div>
+      ${
+        AUTHOR_NAME
+        ? `<div class="author-row">
+            <div class="author-avatar">${escapeHtml(AUTHOR_NAME.slice(0,1).toUpperCase())}</div>
+            <div>
+              <div class="author-name">${escapeHtml(AUTHOR_NAME)}</div>
+              <div class="author-date">${dateStr}</div>
+            </div>
+          </div>`
+        : `<div class="post-meta-top">${dateStr}</div>`
+      }
+      <div class="post-title">${escapeHtml(post.title)}</div>
+      ${
+        imgs.length
+        ? `<div class="gallery">${imgs.map(src=>`<img src="${src}">`).join('')}</div>`
+        : `<div class="empty-shots">Скриншотов нет</div>`
+      }
+    `;
+  }catch(err){
+    console.error(err);
+    document.querySelector('.state-box').innerHTML = 'Ошибка загрузки';
+  }
+}
+
+function route(){
+  const hash = location.hash || '';
+  const viewMatch = hash.match(/p=([a-z0-9]+)/i);
+  if(viewMatch){ renderView(viewMatch[1]); return; }
+
+  const newMatch = hash.match(/new=([^&]+)/);
+  if(newMatch && decodeURIComponent(newMatch[1]) === CREATE_KEY){ renderCreate(); return; }
+
+  renderLocked();
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
