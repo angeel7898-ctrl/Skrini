@@ -327,9 +327,26 @@ async function handlePublish(){
     const postRef = db.collection('posts').doc(id);
     await postRef.set({ title, createdAt: Date.now() });
 
-    // each screenshot as its own document so we never hit the 1MB doc limit
-    const batchWrites = images.map((src, i)=>
-      postRef.collection('images').doc(String(i).padStart(3,'0')).set({ data: src, order: i })
+    // pack images into as few documents as possible (chunks under ~900KB
+    // each, safely inside Firestore's 1MB/doc limit) so a viewer only pays
+    // for a handful of reads instead of one read per screenshot
+    const CHUNK_LIMIT = 850000; // leaves margin below the 1MB doc cap
+    const chunks = [];
+    let current = [];
+    let currentSize = 0;
+    for(const src of images){
+      if(current.length && currentSize + src.length > CHUNK_LIMIT){
+        chunks.push(current);
+        current = [];
+        currentSize = 0;
+      }
+      current.push(src);
+      currentSize += src.length;
+    }
+    if(current.length) chunks.push(current);
+
+    const batchWrites = chunks.map((chunk, i)=>
+      postRef.collection('images').doc(String(i).padStart(3,'0')).set({ data: chunk, order: i })
     );
     await Promise.all(batchWrites);
 
@@ -366,15 +383,29 @@ async function renderView(id){
   `;
 
   try{
-    const postRef = db.collection('posts').doc(id);
-    const doc = await postRef.get();
-    if(!doc.exists){
-      document.querySelector('.state-box').innerHTML = 'Пост не найден';
-      return;
+    const cacheKey = 'post_' + id;
+    let post, imgs;
+    const cached = sessionStorage.getItem(cacheKey);
+
+    if(cached){
+      // repeat view (e.g. refresh) — served from cache, costs 0 Firestore reads
+      ({ post, imgs } = JSON.parse(cached));
+    }else{
+      const postRef = db.collection('posts').doc(id);
+      const doc = await postRef.get();
+      if(!doc.exists){
+        document.querySelector('.state-box').innerHTML = 'Пост не найден';
+        return;
+      }
+      post = doc.data();
+      const imagesSnap = await postRef.collection('images').orderBy('order').get();
+      // each doc may hold a chunk (array) of images or a single legacy image
+      imgs = imagesSnap.docs.flatMap(d=>{
+        const data = d.data().data;
+        return Array.isArray(data) ? data : [data];
+      });
+      try{ sessionStorage.setItem(cacheKey, JSON.stringify({ post, imgs })); }catch(e){ /* storage full, ignore */ }
     }
-    const post = doc.data();
-    const imagesSnap = await postRef.collection('images').orderBy('order').get();
-    const imgs = imagesSnap.docs.map(d => d.data().data);
 
     const date = new Date(post.createdAt);
     const dateStr = date.toLocaleDateString('ru-RU', {day:'numeric', month:'long', year:'numeric'});
