@@ -399,11 +399,9 @@ async function renderView(id){
       }
       post = doc.data();
       const imagesSnap = await postRef.collection('images').orderBy('order').get();
-      // each doc may hold a chunk (array) of images or a single legacy image
-      imgs = imagesSnap.docs.flatMap(d=>{
-        const data = d.data().data;
-        return Array.isArray(data) ? data : [data];
-      });
+      if (post.uploadState && post.uploadState !== 'ready') throw new Error('Gallery upload incomplete');
+      imgs = decodeGalleryDocuments(imagesSnap.docs.map(d => d.data()));
+      if (Number.isInteger(post.imageCount) && post.imageCount !== imgs.length) throw new Error('Incomplete gallery');
       try{ sessionStorage.setItem(cacheKey, JSON.stringify({ post, imgs })); }catch(e){ /* storage full, ignore */ }
     }
 
@@ -437,6 +435,38 @@ async function renderView(id){
     document.querySelector('.state-box').innerHTML = 'Ошибка загрузки';
   }
 }
+
+// SKRINI_SPLIT_IMAGES_V1: original images may span several Firestore documents.
+function decodeGalleryDocuments(rows) {
+  const images = [];
+  for (let i = 0; i < rows.length;) {
+    const row = rows[i];
+    if (!row.split) {
+      const values = Array.isArray(row.data) ? row.data : [row.data];
+      if (values.some(value => typeof value !== 'string' || !value)) throw new Error('Invalid image data');
+      images.push(...values);
+      i += 1;
+      continue;
+    }
+    const count = row.partCount;
+    if (!Number.isInteger(count) || count < 1 || count > 100 || row.partIndex !== 0 || row.imageIndex !== images.length) {
+      throw new Error('Invalid image parts');
+    }
+    const parts = [];
+    for (let p = 0; p < count; p++) {
+      const part = rows[i + p];
+      if (!part || !part.split || part.imageIndex !== row.imageIndex || part.partCount !== count ||
+          part.partIndex !== p || typeof part.dataPart !== 'string') throw new Error('Incomplete image');
+      parts.push(part.dataPart);
+    }
+    const image = parts.join('');
+    if (!/^data:image\/(jpeg|png|webp|avif|gif);base64,/.test(image)) throw new Error('Invalid original image');
+    images.push(image);
+    i += count;
+  }
+  return images;
+}
+// END_SPLIT_IMAGES_DECODER
 
 function route(){
   const hash = location.hash || '';
